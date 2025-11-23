@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Olama Chat — Smart Assistant</title>
+  <style>
+    :root{
+      --bg:#f1f5f9; --card:#ffffff; --accent:#6366f1; --muted:#6b7280;
+      --user-bg:linear-gradient(90deg,#2563eb,#06b6d4);
+      --bot-bg:#f3f4f6;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;background:var(--bg);display:flex;align-items:center;justify-content:center;height:100vh}
+    .container{width:920px;max-width:95%;height:80vh;background:var(--card);border-radius:14px;box-shadow:0 15px 40px rgba(2,6,23,0.12);display:grid;grid-template-columns:320px 1fr;overflow:hidden}
+    /* left panel */
+    .sidebar{background:linear-gradient(180deg,#eef2ff,white);padding:18px;border-right:1px solid #eef2ff;display:flex;flex-direction:column;gap:12px}
+    .brand{display:flex;align-items:center;gap:10px}
+    .logo{width:44px;height:44px;border-radius:10px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:white;font-weight:700}
+    .title{font-weight:700;color:#111827}
+    .new-btn{margin-top:8px;padding:8px 10px;background:transparent;border:1px solid var(--accent);color:var(--accent);border-radius:8px;cursor:pointer}
+    .conversations{overflow:auto;margin-top:8px;flex:1}
+    .conv-item{padding:10px;border-radius:8px;cursor:pointer;color:#374151;font-size:14px}
+    .conv-item.active{background:#eef2ff;font-weight:600}
+
+    /* main chat */
+    .chat-main{display:flex;flex-direction:column; height:100%}
+    .chat-header{padding:18px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between}
+    .chat-body{flex:1;padding:20px;overflow:auto;background:linear-gradient(180deg, #fff, #fbfdff)}
+    .messages{display:flex;flex-direction:column;gap:12px;max-width:800px}
+    .bubble{max-width:70%;padding:12px 14px;border-radius:14px;box-shadow:0 6px 18px rgba(17,24,39,0.04);white-space:pre-wrap}
+    .bot{align-self:flex-start;background:var(--bot-bg);color:#111827;border-bottom-left-radius:4px}
+    .user{align-self:flex-end;background:var(--user-bg);color:white;border-bottom-right-radius:4px}
+    .meta{font-size:12px;color:var(--muted);margin-bottom:6px}
+    .typing{display:flex;gap:6px;align-items:center}
+    .dot{width:8px;height:8px;background:#d1d5db;border-radius:50%;animation: blink 1s infinite}
+    .dot:nth-child(2){animation-delay:.2s}.dot:nth-child(3){animation-delay:.4s}
+    @keyframes blink{0%{opacity:.2}50%{opacity:1}100%{opacity:.2}}
+
+    .chat-input{padding:12px;border-top:1px solid #f1f5f9;display:flex;gap:8px;align-items:center}
+    .input{flex:1;padding:12px;border:1px solid #e6eef8;border-radius:10px;font-size:15px}
+    .send-btn{background:var(--accent);color:white;padding:10px 14px;border-radius:10px;border:none;cursor:pointer}
+    .send-btn[disabled]{opacity:.6;cursor:not-allowed}
+    .small{font-size:13px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="sidebar">
+      <div class="brand">
+        <div class="logo">O</div>
+        <div>
+          <div class="title">Olama Chat</div>
+          <div class="small">Smart assistant</div>
+        </div>
+      </div>
+      <button id="newBtn" class="new-btn">+ Yangi suhbat</button>
+      <div id="conversations" class="conversations">
+        <!-- conversation list -->
+      </div>
+      <div class="small">Serverda chatlar saqlanadi. API kalit serverda.</div>
+    </div>
+
+    <div class="chat-main">
+      <div class="chat-header">
+        <div>
+          <div style="font-weight:700">Suhbat</div>
+          <div id="convTitle" class="small">Yangi suhbat</div>
+        </div>
+        <div class="small" id="status">Offline</div>
+      </div>
+
+      <div class="chat-body" id="chatBody">
+        <div class="messages" id="messages"></div>
+      </div>
+
+      <div class="chat-input">
+        <input id="inputMsg" class="input" type="text" placeholder="Savolingizni yozing... (Enter bilan yuborish)">
+        <button id="sendBtn" class="send-btn">Yuborish</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* Utility: read CSRF token from cookie */
+function getCookie(name) {
+  let v = null;
+  if (document.cookie) {
+    document.cookie.split(';').forEach(c => {
+      const [k,val] = c.trim().split('=');
+      if (k === name) v = decodeURIComponent(val);
+    });
+  }
+  return v;
+}
+const csrftoken = getCookie('csrftoken');
+
+const messagesEl = document.getElementById('messages');
+const inputEl = document.getElementById('inputMsg');
+const sendBtn = document.getElementById('sendBtn');
+const statusEl = document.getElementById('status');
+const convTitleEl = document.getElementById('convTitle');
+const convListEl = document.getElementById('conversations');
+const newBtn = document.getElementById('newBtn');
+
+let conversationId = null;
+let conversations = []; // local list (minimal)
+
+// helper to append message
+function appendMessage(role, text, meta){
+  const div = document.createElement('div');
+  div.className = 'bubble ' + (role === 'user' ? 'user' : 'bot');
+  if (meta) {
+    const m = document.createElement('div'); m.className='meta'; m.textContent = meta;
+    div.appendChild(m);
+  }
+  const p = document.createElement('div'); p.textContent = text;
+  div.appendChild(p);
+  messagesEl.appendChild(div);
+  messagesEl.parentElement.scrollTop = messagesEl.parentElement.scrollHeight;
+}
+
+// show typing indicator
+function showTyping(){
+  const wrap = document.createElement('div'); wrap.id = 'typing';
+  wrap.className = 'bubble bot typing';
+  const d1=document.createElement('div'); d1.className='dot';
+  const d2=document.createElement('div'); d2.className='dot';
+  const d3=document.createElement('div'); d3.className='dot';
+  wrap.appendChild(d1); wrap.appendChild(d2); wrap.appendChild(d3);
+  messagesEl.appendChild(wrap);
+  messagesEl.parentElement.scrollTop = messagesEl.parentElement.scrollHeight;
+}
+function hideTyping(){
+  const t = document.getElementById('typing'); if (t) t.remove();
+}
+
+// send message to backend
+async function sendMessage(text){
+  if (!text) return;
+  inputEl.value = '';
+  sendBtn.disabled = true;
+  appendMessage('user', text, 'Siz — hozir');
+  showTyping();
+  statusEl.textContent = 'Yozilmoqda...';
+
+  try {
+    const res = await fetch('/chat/api/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken
+      },
+      body: JSON.stringify({ message: text, conversation_id: conversationId })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      hideTyping();
+      // render all messages from response (ensures full state sync)
+      messagesEl.innerHTML = '';
+      data.messages.forEach(m=>{
+        appendMessage(m.role, m.content, m.role==='user' ? 'Siz' : 'Olama');
+      });
+      conversationId = data.conversation_id;
+      convTitleEl.textContent = 'Suhbat #' + conversationId;
+      statusEl.textContent = 'Onlayn';
+      // local conv list update
+      if (!conversations.find(c=>c.id===conversationId)){
+        conversations.unshift({id:conversationId, title: data.messages[0]?.content?.slice(0,40) || 'Yangi suhbat'});
+        renderConversationList();
+      }
+    } else {
+      hideTyping();
+      appendMessage('bot', 'Xatolik: ' + (data.error || JSON.stringify(data)), 'Server');
+      statusEl.textContent = 'Xatolik';
+    }
+  } catch(err){
+    hideTyping();
+    appendMessage('bot', 'So‘rov yuborilmadi: '+err.message, 'Server');
+    statusEl.textContent = 'Offline';
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+function renderConversationList(){
+  convListEl.innerHTML = '';
+  conversations.forEach(c=>{
+    const el = document.createElement('div'); el.className='conv-item';
+    el.textContent = c.title || ('Suhbat #'+c.id);
+    el.onclick = ()=> { loadConversation(c.id); };
+    convListEl.appendChild(el);
+  });
+}
+
+async function loadConversation(id){
+  // To keep minimal, re-request conversation by sending a dummy message " " to get messages,
+  // or implement a dedicated GET endpoint. Here: we'll call API with empty message => invalid.
+  // Simpler approach: open a new conversation placeholder.
+  conversationId = id;
+  convTitleEl.textContent = 'Suhbat #' + id;
+  messagesEl.innerHTML = '';
+  appendMessage('bot', 'Oldingi suhbat yuklanmagan. (GET endpoint qo‘shishni tavsiya qilaman)', 'System');
+}
+
+newBtn.onclick = ()=>{
+  conversationId = null;
+  convTitleEl.textContent = 'Yangi suhbat';
+  messagesEl.innerHTML = '';
+};
+
+sendBtn.onclick = ()=> sendMessage(inputEl.value.trim());
+inputEl.addEventListener('keydown', (e)=> { if(e.key==='Enter') sendMessage(inputEl.value.trim()); });
+
+/* Initial status */
+statusEl.textContent = 'Tayyor';
+</script>
+</body>
+</html>

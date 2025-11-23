@@ -1,0 +1,9 @@
+Model name / Olama endpoint: Olama API structure can change — check BASE_URL and response (choices → message → content) in olama_client.py and adjust if necessary.
+
+GET endpoint: if you want to load the full history of previous conversations, add GET /chat/api/?conversation_id=... 
+
+If you add streaming (SSE/WebSocket), the user will see “typing” and partial response — realistic experience.
+
+Auth & rate-limit: for production, use JWT or session auth, set per-IP limit with django-ratelimit .
+
+Deploy: Gunicorn + Nginx, store OLAMA API key in server environment.

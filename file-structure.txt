@@ -1,0 +1,15 @@
+olama_chat/
+├─ backend/
+│  ├─ manage.py
+│  ├─ backend/           # project
+│  │   └─ settings.py
+│  ├─ chat/              # app
+│  │   ├─ migrations/
+│  │   ├─ models.py
+│  │   ├─ views.py
+│  │   ├─ olama_client.py
+│  │   └─ urls.py
+│  ├─ templates/
+│  │   └─ chat/index.html
+│  ├─ requirements.txt
+│  └─ .env
